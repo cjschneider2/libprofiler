@@ -3,18 +3,26 @@
 
 * HOW TO COMPILE PROFILER LIBRARY :
 
-	Type :
-		cmake.
-		make
+	It should compile using :
+
+	>cmake.
+	>make
 
 
 * HOW TO USE PROFILER LIBRARY :
 
+	To compile the application you have to profile, use gcc 
+	compiler option -finstrument-functions, that will add entry/exit
+	function call to your program, calling both methods :
+	
+	extern "C"  void __cyg_profile_func_enter(void *func, void *callsite);
+	extern "C" void __cyg_profile_func_exit(void *func, void *callsite);
+	
 	To launch profiled application you have to executes :
 
 	LD_PRELOAD=[path to the library]/libprofiler.so [your program]
 
-	I.e to launch a program "main" in the folder wheree the library
+	i.e to launch a program "main" in the folder where the library
 	is loaded :
 
 	LD_PRELOAD=`pwd`/libprofiler.so main
