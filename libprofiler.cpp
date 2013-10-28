@@ -412,7 +412,7 @@ extern "C" void screenBuilder(){
 			    }	
 
 			    if (!stop_ncurses) {
-				   shared_com[col+10] = 0; // Set maximum length of STR
+				   shared_com[col+SHARED_CHANNEL] = 0; // Set maximum length of STR
 				   		
 				   int aPos = 0;
 				   if (needDisplay(shared_com[2], aPos)) {
