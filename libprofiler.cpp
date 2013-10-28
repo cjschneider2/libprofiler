@@ -377,10 +377,8 @@ extern "C" void screenBuilder(){
 			    }
 
 			    if (!stop_ncurses) {
-				   shared_com[col+SHARED_CHANNEL] = 0; // Set maximum length of STR
-				   			
+				   shared_com[col+SHARED_CHANNEL] = 0; // Set maximum length of STR	
 				   mvwprintw(aDisplayWin, shared_com[2],0,"%s",(char*) (shared_com+SHARED_CHANNEL));
-				   
 			    }
 	
 			    // Setup reverse line
@@ -481,40 +479,41 @@ extern "C" void screenBuilder(){
 			   int iY = 0.80*(row/2);
 			   int iLength = ((shared_com[11]*0.60)*row)/200;
 			   int iHeight = (0.60*row/2);
-		
-			   mvwaddch(aGraphWin, iY+1, iOffset+shared_com[10]*3, ACS_BTEE); 	 
-			   mvwaddch(aGraphWin, iY+1, iOffset+shared_com[10]*3+1, ACS_HLINE);
-			   mvwaddch(aGraphWin, iY+1, iOffset+shared_com[10]*3+2, ACS_HLINE);
+			   int iPhase = iOffset+shared_com[10]*3;			
+	
+			   mvwaddch(aGraphWin, iY+1, iPhase, ACS_BTEE); 	 
+			   mvwaddch(aGraphWin, iY+1, iPhase+1, ACS_HLINE);
+			   mvwaddch(aGraphWin, iY+1, iPhase+2, ACS_HLINE);
 			   
-			   mvwaddch(aGraphWin, iY-iHeight, iOffset+shared_com[10]*3, ACS_TTEE); 	 
-			   mvwaddch(aGraphWin, iY-iHeight, iOffset+shared_com[10]*3+1, ACS_HLINE);
-			   mvwaddch(aGraphWin, iY-iHeight, iOffset+shared_com[10]*3+2, ACS_HLINE);	
+			   mvwaddch(aGraphWin, iY-iHeight, iPhase, ACS_TTEE); 	 
+			   mvwaddch(aGraphWin, iY-iHeight, iPhase+1, ACS_HLINE);
+			   mvwaddch(aGraphWin, iY-iHeight, iPhase+2, ACS_HLINE);	
 
 			   for (int i=0; i<iHeight; i++) {
-				mvwaddch(aGraphWin, iY-i, iOffset+shared_com[10]*3, ACS_VLINE); 
+				mvwaddch(aGraphWin, iY-i, iPhase, ACS_VLINE); 
 			   }
 			   if (shared_com[10] == 31) {  
-				mvwaddch(aGraphWin, iY+1, iOffset+(shared_com[10]+1)*3, ACS_BTEE); 
-				mvwaddch(aGraphWin, iY-iHeight, iOffset+(shared_com[10]+1)*3, ACS_TTEE);
+				mvwaddch(aGraphWin, iY+1, iPhase+3, ACS_BTEE); 
+				mvwaddch(aGraphWin, iY-iHeight, iPhase+3, ACS_TTEE);
 				for (int i=0; i<iHeight; i++) {
-				  mvwaddch(aGraphWin, iY-i, iOffset+(shared_com[10]+1)*3, ACS_VLINE); 
+				  mvwaddch(aGraphWin, iY-i, iPhase+3, ACS_VLINE); 
 			     }
 			   }
 
 			   if (shared_com[11]>=0) {
 				   
 				   for (int i=0; i<iLength; i++) {
-					mvwaddch(aGraphWin, iY-i, iOffset+shared_com[10]*3+1, ACS_CKBOARD); 
-					mvwaddch(aGraphWin, iY-i, iOffset+shared_com[10]*3+2, ACS_CKBOARD); 
+					mvwaddch(aGraphWin, iY-i, iPhase+1, ACS_CKBOARD); 
+					mvwaddch(aGraphWin, iY-i, iPhase+2, ACS_CKBOARD); 
 				   }
 	
-				   if (shared_com[11]!=0) mvwprintw(aGraphWin, iY+2, iOffset+shared_com[10]*3+1 ,"%2d", (shared_com[11]==100?99:shared_com[11]));
-				   mvwprintw(aGraphWin, iY+3, iOffset+shared_com[10]*3+1 ,"%02d", shared_com[10]);
+				   if (shared_com[11]!=0) mvwprintw(aGraphWin, iY+2, iPhase+1 ,"%2d", (shared_com[11]==100?99:shared_com[11]));
+				   mvwprintw(aGraphWin, iY+3, iPhase+1 ,"%02d", shared_com[10]);
 
 
 			   } else {
-				   mvwaddch(aGraphWin, iY, iOffset+shared_com[10]*3+1, ACS_BOARD); 
-				   mvwaddch(aGraphWin, iY, iOffset+shared_com[10]*3+2, ACS_BOARD);
+				   mvwaddch(aGraphWin, iY, iPhase+1, ACS_BOARD); 
+				   mvwaddch(aGraphWin, iY, iPhase+2, ACS_BOARD);
 			   }
 
 			   if (shared_com[10] == 31) {   
@@ -526,7 +525,6 @@ extern "C" void screenBuilder(){
 		    } 
 
 			
-		     
 		    if (shared_com[13] == 1) {
 
 			   wclear(aGraphWin);
@@ -534,7 +532,6 @@ extern "C" void screenBuilder(){
 			   wrefresh(aGraphWin);	
 
 		    }
-		    
 
 	    }
 
@@ -848,7 +845,6 @@ std::vector<ITEM_CALLER*> returnMethodCallsByName(ITEM_METHOD *iItemMethod, char
 
 	ITEM_CALLER* _start = iItemMethod->_callers;
 	while (_start!=0) {
-		//printf(" demangle second [%p] \n", _start->_callsite);
 		if (strcmp(aNameFunc,_start->_name)==0) {
 			aResult.push_back(_start); // callers may have same name but != address
 		}
@@ -909,7 +905,7 @@ extern "C" std::string string_format(const std::string fmt, ...) {
 extern "C" std::string timeDisplay(long long iTime){
 
 	if (iTime<0) { // Error
- 		return string_format("[N/A]",iTime);	
+ 		return string_format("[N/A]");	
 	} else if (iTime<1000L) {
 		return string_format("%lldns",iTime);	
 	} else if (iTime<1000000L) {
@@ -1003,6 +999,25 @@ extern "C" PATH* findPathTree(THREAD_CONTEXT* iCtxt, std::set<char*,set_comp_str
 
 }
 
+int remote_printf(int iLine, const char *fmt,...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    int size = vsnprintf((char*) (shared_com+SHARED_CHANNEL), COMMUNICATION_BUFFER_SIZE-(SHARED_CHANNEL+1), 
+			fmt, ap);
+    shared_com[2] = iLine; 
+    ((char*) (shared_com+SHARED_CHANNEL))[size]=0;
+    shared_com[0] = 3;
+    va_end(ap);
+
+    while (shared_com[0]==3) { // Waiting the print
+		usleep(10000);
+	}
+
+    return size;
+}
+
 ITEM_CALLER* _reserved_caller;
 
 extern "C" int printPathTree(PATH* iPath, int iDepth,  int& iLineCount, int& iMain){
@@ -1028,20 +1043,17 @@ extern "C" int printPathTree(PATH* iPath, int iDepth,  int& iLineCount, int& iMa
 
 	int aPos = 0;
 	if (needDisplay(iLineCount, aPos)) {
-		int size = snprintf((char*) (shared_com+SHARED_CHANNEL), COMMUNICATION_BUFFER_SIZE-(SHARED_CHANNEL+1), 
-			"%14p | %09lu | %8s | %8s | %8s |   %s%s\n",  iPath->_method->_callsite,
-			 count,
-			 timeDisplay(cumulT).c_str(),
-			 timeDisplay(cumulT/count).c_str(),
-			 timeDisplay((cumulT-cumulOT)/count).c_str(),
-			 aSpace, 
-			 iPath->_method->_calls->_name);
-		shared_com[2] = iLineCount; 
-		((char*) (shared_com+SHARED_CHANNEL))[size]=0;
-		shared_com[0] = 3;
-	}
-	while (shared_com[0]==3) {
-		usleep(10000);
+
+		remote_printf(iLineCount, 
+				    "%14p | %09lu | %8s | %8s | %8s |   %s%s\n",
+				    iPath->_method->_callsite,
+				    count,
+				    timeDisplay(cumulT).c_str(),
+				    timeDisplay(cumulT/count).c_str(),
+				    timeDisplay((cumulT-cumulOT)/count).c_str(),
+				    aSpace, 
+				    iPath->_method->_calls->_name);
+
 	}
 	iLineCount++;
 
@@ -1142,21 +1154,15 @@ extern "C" void displayLongestPaths(THREAD_CONTEXT* iCtxt) {
 		if (needDisplay(lineCount, aPos)) {
 
 			if (i==0) { shared_com[9] = 1; } else { shared_com[9] = 0; }
-			int size = snprintf((char*) (shared_com+SHARED_CHANNEL), COMMUNICATION_BUFFER_SIZE-(SHARED_CHANNEL+1), 
-							"%14p | %09lu | %8s | %8s | %8s | P %s \n", aPCallers[i]->_callsite,
-							count,	 
-							timeDisplay(cumulT).c_str(),
-							timeDisplay(cumulT/count).c_str(),
-							timeDisplay((cumulT-cumulOT)/count).c_str(), 
-							aPCallers[i]->_name );
 
-			shared_com[2] = lineCount; 
-			((char*) (shared_com+SHARED_CHANNEL))[size]=0;
-			shared_com[0] = 3;
+			remote_printf(	lineCount, "%14p | %09lu | %8s | %8s | %8s | P %s \n",
+						aPCallers[i]->_callsite,
+						count,	 
+						timeDisplay(cumulT).c_str(),
+						timeDisplay(cumulT/count).c_str(),
+						timeDisplay((cumulT-cumulOT)/count).c_str(), 
+						aPCallers[i]->_name );
 
-		}
-		while (shared_com[0]==3) {
-			usleep(10000);
 		}
 		lineCount++;
 
@@ -1196,10 +1202,6 @@ extern "C" void displayContextCalls(THREAD_CONTEXT* iCtxt) {
 	}
 
 	for (int i=0; i<aList.size(); i++) {
-
-		while (shared_com[0]==3) {
-			usleep(10000);
-		}
 		
 		if (i>shared_com[7]) return; // Transmit screen size
 		
@@ -1209,21 +1211,15 @@ extern "C" void displayContextCalls(THREAD_CONTEXT* iCtxt) {
 		}
 
 		if (strlen(aList[i]._name)==0) {
-		  //printf("%d : [no name] \n",(int) _start->_count);
 
-		  int size = snprintf((char*) (shared_com+SHARED_CHANNEL), COMMUNICATION_BUFFER_SIZE-(SHARED_CHANNEL+1), 
-									"%09d | %9s | %8s | %8s | %6lu | %5lu |[no name] \n", 
-									(int) aList[i]._count,
-									timeDisplay(aList[i]._cumulatedTime).c_str(),
-									timeDisplay(aList[i]._cumulatedTime/aList[i]._count).c_str(),
-									timeDisplay(aList[i]._cumulatedOuterTime/aList[i]._count).c_str(),
-									aList[i]._numberCallers,
-									0L
-									); 
-		  shared_com[2] = i+1; 
-		  ((char*) (shared_com+SHARED_CHANNEL))[size]=0;
-
-		  shared_com[0] = 3;
+		  remote_printf( i+1, "%09d | %9s | %8s | %8s | %6lu | %5lu |[no name] \n" ,
+					  (int) aList[i]._count,
+					  timeDisplay(aList[i]._cumulatedTime).c_str(),
+					  timeDisplay(aList[i]._cumulatedTime/aList[i]._count).c_str(),
+					  timeDisplay(aList[i]._cumulatedOuterTime/aList[i]._count).c_str(),
+					  aList[i]._numberCallers,
+					  0L
+					  ); 	
 
 		} else {
 
@@ -1243,7 +1239,7 @@ extern "C" void displayContextCalls(THREAD_CONTEXT* iCtxt) {
 		  if (nCalled==1) c2='*';
 		  if (nCalled>1) c2='S';
 
-		  int size = snprintf((char*) (shared_com+SHARED_CHANNEL), COMMUNICATION_BUFFER_SIZE-(SHARED_CHANNEL+1), "%09lu | %9s | %8s | %8s | %6lu%c| %5lu%c|%s \n", 
+		  remote_printf(i+1, "%09lu | %9s | %8s | %8s | %6lu%c| %5lu%c|%s \n", 
 					 count,
 					 timeDisplay(cumulT).c_str(), 
 					 timeDisplay(cumulT/count).c_str(),
@@ -1252,12 +1248,7 @@ extern "C" void displayContextCalls(THREAD_CONTEXT* iCtxt) {
 					 c,
 					 aCalls.size(),
 					 c2,	
-					 aList[i]._name); 	
-		  shared_com[2] = i+1; 		
-		  ((char*) (shared_com+10))[size]=0;
-		  //printf("%d : %s \n",(int) _start->_count, aDemangled);
-
-		  shared_com[0] = 3;
+					 aList[i]._name);
 			
 		}
 	
