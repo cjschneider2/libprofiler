@@ -50,7 +50,7 @@
 #define MODE_LIST	   0
 #define MODE_PATH	   1
 
-#define SHARED_CHANNEL 24
+#define SHARED_CHANNEL 25
 
 int init=0;
 int main_found=0;
@@ -71,6 +71,7 @@ typedef struct item_caller {
 	void *_callsite;
 	item_method* _calls;
 	char* _name;
+	unsigned long _name_hash;
 	long _count;
 	long long _cumulatedTime;
 	long long _cumulatedOuterTime;
@@ -114,6 +115,7 @@ typedef struct item_caller {
 typedef struct item_method {
 	void *_func;
 	char* _name;
+	unsigned long _name_hash;
 	long long _count;
 	long long _cumulatedTime;
 	long long _cumulatedOuterTime;
@@ -244,12 +246,15 @@ extern "C" void destroy_win(WINDOW *local_win)
 	delwin(local_win);
 }
 
+pthread_mutex_t ncurses_mutex;
 
 // We catch interruptions to stop properly the profiler
 void intScreenBuilderHandler(int dummy) {
     // here we pass the info !! need to stop other process 
-    printf("Screen builder received interrupt signal");	 
-    shared_com[1] = 1;
+    printf("Screen builder received interrupt signal");
+    pthread_mutex_lock (&ncurses_mutex);	 
+    shared_com[1]=1;
+    shared_com[SHARED_CHANNEL-1]=2;
     
     stop_ncurses = true;
     destroy_win(aOutputWin);
@@ -257,10 +262,9 @@ void intScreenBuilderHandler(int dummy) {
     destroy_win(aGraphWin);
 
     endwin();	
+    pthread_mutex_unlock (&ncurses_mutex);	
 
 }	
-
-pthread_mutex_t ncurses_mutex;
 
 extern "C" void* screenOuptut(void* args){
 
@@ -345,17 +349,24 @@ extern "C" void screenBuilder(){
 
     aGraphWin = create_newwin(row/2, col, row/2, 0);		
 
+    shared_com[SHARED_CHANNEL-1] = 0;
+
     // Here we start to read the ouput data 
     bool _have_to_wait = false;
     while (!stop) {
 	    
 	    pthread_mutex_lock (&ncurses_mutex);
 
+	   
+
+	    if (shared_com[SHARED_CHANNEL-1]==2) { // Stop the process
+		    shared_com[SHARED_CHANNEL-1] = 100; // I have received the signal
+		    break;
+	    }	
+
 	    shared_com[7] = row;			
 	    int status = shared_com[0];
-	    if (status==2) { // Stop the process
-		    stop = true;
-	    } else if (status==3) { // Write formatted data
+	    if (status==3) { // Write formatted data
 		    // Here we have to write structured data to the screen	
 
 		    if (shared_com[6]==MODE_LIST) {
@@ -364,7 +375,14 @@ extern "C" void screenBuilder(){
 
 			    if (shared_com[2]==1) {
 			    		mvwprintw(aDisplayWin, 0,0," # Calls  | CPU Cycle | CPU Avg. | CPU Inn. | Caller | Calls | Function Name called by thread[%d]",shared_com[3]);
+	
+					if (shared_com[SHARED_CHANNEL-1]==1) {
+					  mvwprintw(aDisplayWin, 0, 0," PROGRAM STOPPED ");
+					  mvwchgat(aDisplayWin, 0, 0, 17, A_REVERSE, 2, 0);
+				     }
 			    }
+
+			    
 
 			    if (shared_com[4]==ORDER_COUNT) {
 					 mvwchgat(aDisplayWin, 0, 0, 10, A_REVERSE, 1, 0);
@@ -396,6 +414,12 @@ extern "C" void screenBuilder(){
 
 					// %14p | %09lu | %8s | %8s | %8s |   %s%s\n	
 			    		mvwprintw(aDisplayWin, 0,0," Address       | # Calls   | CPU Cyc. | CPU Avg. | CPU Inn. | Longest Path Thread [%d]",shared_com[3]);
+
+					 if (shared_com[SHARED_CHANNEL-1]==1) {
+						  mvwprintw(aDisplayWin, 0, 0," PROGRAM STOPPED ");
+						  mvwchgat(aDisplayWin, 0, 0, 17, A_REVERSE, 2, 0);
+					 }
+
 			    }
 	
 
@@ -585,10 +609,13 @@ extern "C" void screenBuilder(){
 		
     }	
 
-    close(pipe_fds[0]);
-    close(pipe_fds[1]);
+    //if (!stop_ncurses) endwin();
 
-    if (!stop_ncurses) endwin();	
+    intScreenBuilderHandler(0);	
+    printf("Stoping the screen profiler...");
+    	
+    close(pipe_fds[0]);
+    close(pipe_fds[1]);		
 
 }
 
@@ -616,6 +643,8 @@ extern "C" void redirect_standard_output() {
          dup2(pipe_fds[0], 0);      // redirect pipe to child's stdin
          setvbuf(stdout, 0, _IONBF, 0);
 
+	    		
+
 	    // Calls the screen builder
 	    screenBuilder();
 
@@ -630,13 +659,23 @@ extern "C" void redirect_standard_output() {
    // Create thread that will manage the print in buffer from shared mem	
    pthread_create(&output_thread, NULL, &redirected_thread, (void*) 0);
    pthread_create(&key_thread, NULL, &keyboard_thread, (void*) 0);
-   pthread_create(&distrib_thread, NULL, &distribution_thread, (void*) 0);		
+   pthread_create(&distrib_thread, NULL, &distribution_thread, (void*) 0);
 	
 }
 
 // ################################################################## //
 // ## STRUCTURES MANAGEMENT    							  ## //
 // ################################################################## //
+
+unsigned long hash(unsigned char *str) {
+   unsigned long hash = 5381;
+   int c;
+
+   while (c = *str++)
+       hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
+
+   return hash;
+}
 
 extern "C" int demangle(char* oBuffer, int iSize, void *func){
 
@@ -688,10 +727,10 @@ ITEM_METHOD* findItem(THREAD_CONTEXT* iCtxt, void *func){
 	return (ITEM_METHOD*) 0;
 }
 
-ITEM_METHOD* findItemByName(THREAD_CONTEXT* iCtxt, char* iName){
+ITEM_METHOD* findItemByNameHash(THREAD_CONTEXT* iCtxt, unsigned long iNameHash){
 	ITEM_METHOD* _start = iCtxt->_first;
 	while (_start!=0) {
-		if (strcmp(_start->_name,iName)==0) {
+		if (_start->_name_hash==iNameHash) {
 			return _start;
 		}
 		_start = (ITEM_METHOD*) _start->_nextItem;
@@ -746,6 +785,7 @@ ITEM_CALLER* addCaller(ITEM_METHOD *iItemMethod, void* callsite){
 	aNew->_calls = iItemMethod;
 	aNew->_name = new char[2048];
 	if (demangle(aNew->_name, 2048, callsite)) {
+		 aNew->_name_hash = hash((unsigned char*) aNew->_name);
 	}
 	aNew->_count = 0;
 	aNew->_nextItem = 0; 
@@ -807,13 +847,12 @@ extern "C" void recordCallers(ITEM_METHOD *iItemMethod,void *callsite, long iCTi
 
 }
 
-int findCallerByName(ITEM_METHOD *iItemMethod, char* aNameFunc){
+int findCallerByNameHash(ITEM_METHOD *iItemMethod, unsigned long aNameFuncHash){
 
 	int count=0;
 	ITEM_CALLER* _start = iItemMethod->_callers;
 	while (_start!=0) {
-		//printf(" demangle second [%p] \n", _start->_callsite);
-		if (strcmp(aNameFunc,_start->_name)==0) {
+		if (aNameFuncHash==_start->_name_hash) {
 			count++;
 		}
 		_start = (ITEM_CALLER*) _start->_nextItem;
@@ -821,57 +860,41 @@ int findCallerByName(ITEM_METHOD *iItemMethod, char* aNameFunc){
 	return count;
 }
 
-extern "C" std::vector<ITEM_METHOD*> calls(THREAD_CONTEXT* iCtxt ,char *iFuncName){
-
-	std::vector<ITEM_METHOD*> aCalled;
+extern "C" void calls(std::vector<ITEM_METHOD*>& ioCalled, THREAD_CONTEXT* iCtxt ,unsigned long iFuncNameHash){
 
 	ITEM_METHOD* _start = iCtxt->_first;
 	while (_start!=0) {
 
-		if (findCallerByName(_start, iFuncName)) {
-			aCalled.push_back(_start);
+		if (findCallerByNameHash(_start, iFuncNameHash)) {
+			ioCalled.push_back(_start);
 		}
 
 		_start = (ITEM_METHOD*) _start->_nextItem;
 	}
-	
-	return aCalled;
 
 }
 
-std::vector<ITEM_CALLER*> returnMethodCallsByName(ITEM_METHOD *iItemMethod, char* aNameFunc){
-
-	std::vector<ITEM_CALLER*> aResult;	
+extern "C" void returnMethodCallsByName(std::vector<ITEM_CALLER*>& ioCallers, ITEM_METHOD *iItemMethod, char* aNameFunc){
 
 	ITEM_CALLER* _start = iItemMethod->_callers;
 	while (_start!=0) {
 		if (strcmp(aNameFunc,_start->_name)==0) {
-			aResult.push_back(_start); // callers may have same name but != address
+			ioCallers.push_back(_start); // callers may have same name but != address
 		}
 		_start = (ITEM_CALLER*) _start->_nextItem;
 	}
 
-	return aResult;
 }
 
 
-extern "C" std::vector<ITEM_CALLER*> returnMethodCalls(THREAD_CONTEXT* iCtxt ,char *iFuncName){
-
-	std::vector<ITEM_CALLER*> aCallers;
+extern "C" void returnMethodCalls(std::vector<ITEM_CALLER*>& ioCallers, THREAD_CONTEXT* iCtxt ,char *iFuncName){
 
 	ITEM_METHOD* _start = iCtxt->_first;
 	while (_start!=0) {
-
 		// A method can call at several places the same method
-		std::vector<ITEM_CALLER*> aICallers = returnMethodCallsByName(_start, iFuncName);
-		for (int i=0; i<aICallers.size(); i++) {
-			aCallers.push_back(aICallers[i]);
-		}
-
+		returnMethodCallsByName(ioCallers, _start, iFuncName);
 		_start = (ITEM_METHOD*) _start->_nextItem;
 	}
-	
-	return aCallers;
 
 }
 
@@ -933,29 +956,25 @@ extern "C" int isCalling(std::vector<ITEM_METHOD*>& called, char* iName){
 	return count;
 }
 
-extern "C" int isCalled(ITEM_METHOD* called, char* iName){
-	return findCallerByName(called, iName);
+extern "C" int isCalled(ITEM_METHOD* called, unsigned long iNameHash){
+	return findCallerByNameHash(called, iNameHash);
 }
 
-extern "C" std::vector<ITEM_CALLER*> findPrimaryCallers(THREAD_CONTEXT* iCtxt){
-
-	std::vector<ITEM_CALLER*> aPrimaryCaller;
+extern "C" void findPrimaryCallers(std::vector<ITEM_CALLER*>& ioCallers, THREAD_CONTEXT* iCtxt){
 
 	ITEM_METHOD* _start = iCtxt->_first;
 	while (_start!=0) {
 
 		if ((_start->_callers!=0) && (_start->_callers->_nextItem==0)) { // only one caller
-			char* aName = _start->_callers->_name;
-			ITEM_METHOD* aItem = findItemByName(iCtxt, aName);
+			unsigned long aNameHash = _start->_callers->_name_hash;
+			ITEM_METHOD* aItem = findItemByNameHash(iCtxt, aNameHash);
 			if (aItem==0) {
-				aPrimaryCaller.push_back(_start->_callers);
+				ioCallers.push_back(_start->_callers);
 			}
 		}
 
 		_start = (ITEM_METHOD*) _start->_nextItem;
 	}
-
-	return aPrimaryCaller;
 
 }
 
@@ -970,25 +989,23 @@ extern "C" PATH* findPathTree(THREAD_CONTEXT* iCtxt, std::set<char*,set_comp_str
 	PATH* aPath = new PATH();
 	aPath->_method = iEntryPoint;
 
-	std::vector<ITEM_CALLER*> aCalls;
-	if (iEntryPoint->_touched) {
-		aCalls = iEntryPoint->_callslist;
-	} else {
-		aCalls = returnMethodCalls( iCtxt , iEntryPoint->_calls->_name);
-		iEntryPoint->_callslist = aCalls;
+	if (iEntryPoint->_touched==0) {
+		iEntryPoint->_callslist.clear();
+		returnMethodCalls( iEntryPoint->_callslist, iCtxt , iEntryPoint->_calls->_name);
 		iEntryPoint->_touched = 1;
-	}
+	} 
 	
-	if (aCalls.size()==0) {
+	if (iEntryPoint->_callslist.size()==0) {
 		return aPath;
 	} else {
-		for (int i=0; i<aCalls.size(); i++){
+		for (int i=0; i<iEntryPoint->_callslist.size(); i++){
 			
 			std::set<char*,set_comp_str> aPrev = iPrevious;
-			std::set<char*,set_comp_str>::iterator it = iPrevious.find(aCalls[i]->_calls->_name); // Prevent recursion
+			ITEM_CALLER* aItem = iEntryPoint->_callslist[i];
+			std::set<char*,set_comp_str>::iterator it = iPrevious.find(aItem->_calls->_name); // Prevent recursion
 			if (it==iPrevious.end()) {
-				aPrev.insert(aCalls[i]->_calls->_name);
-				PATH* aTmpResult = findPathTree(iCtxt, aPrev, aCalls[i]);
+				aPrev.insert(aItem->_calls->_name);
+				PATH* aTmpResult = findPathTree(iCtxt, aPrev, aItem);
 				aPath->_path.push_back(aTmpResult);
 			}
 
@@ -1123,7 +1140,8 @@ extern "C" void* distribution_thread(void* args) {
 
 extern "C" void displayLongestPaths(THREAD_CONTEXT* iCtxt) {
 
-	std::vector<ITEM_CALLER*> aPCallers = findPrimaryCallers(iCtxt);
+	std::vector<ITEM_CALLER*> aPCallers;
+	findPrimaryCallers(aPCallers, iCtxt);
 	std::sort (aPCallers.begin(), aPCallers.end(), CMP_GREAT_ADAPT<ITEM_CALLER>);
 
 	int lineCount = 0;
@@ -1198,7 +1216,7 @@ extern "C" void displayContextCalls(THREAD_CONTEXT* iCtxt) {
 	ITEM_METHOD* aMethod = 0;
 	if ((shared_com[5]>=0) && (shared_com[5]<aList.size())) {
 		aMethod = &aList[shared_com[5]];
-		aWhoCalls = calls(iCtxt , aList[shared_com[5]]._name);
+		calls(aWhoCalls, iCtxt , aList[shared_com[5]]._name_hash);
 	}
 
 	for (int i=0; i<aList.size(); i++) {
@@ -1227,7 +1245,8 @@ extern "C" void displayContextCalls(THREAD_CONTEXT* iCtxt) {
 		  long long cumulT = aList[i]._cumulatedTime;
 		  long long cumulOT = aList[i]._cumulatedOuterTime;	
 
-		  std::vector<ITEM_METHOD*> aCalls = calls(iCtxt , aList[i]._name);		
+		  std::vector<ITEM_METHOD*> aCalls;
+		  calls(aCalls, iCtxt , aList[i]._name_hash);		
 
 		  char c = ' ';
 		  int nCalling = isCalling(aWhoCalls, aList[i]._name);
@@ -1235,7 +1254,7 @@ extern "C" void displayContextCalls(THREAD_CONTEXT* iCtxt) {
 		  if (nCalling>1) c='S';
 
 		  char c2 = ' ';
-		  int nCalled = isCalled(aMethod, aList[i]._name);
+		  int nCalled = isCalled(aMethod, aList[i]._name_hash);
 		  if (nCalled==1) c2='*';
 		  if (nCalled>1) c2='S';
 
@@ -1267,7 +1286,7 @@ extern "C" void* redirected_thread(void* iArg){
 	// Here we start to read the ouput data
 	while (!stop_output_thread) {	
 
-		if ( shared_com[1]==1 ) { stop_output_thread = true; }
+		if ( shared_com[SHARED_CHANNEL-1]==100 ) { stop_output_thread = true; }
 		
 		THREAD_CONTEXT* aCtxt = getThreadContext(aCTxtNum);
 	
@@ -1347,12 +1366,18 @@ extern "C" void stopProfiler() {
     
 	printf("Profiler stopping ...\n");
 
-	shared_com[0] = 2;	// Stop the screen builder process
+	shared_com[SHARED_CHANNEL-1] = 1;	// Stop the screen builder process
+	while (shared_com[SHARED_CHANNEL-1]==1) {
+		usleep(1000000); // Waiting builder stop
+	}
 
 	close(pipe_fds[0]);
 	close(pipe_fds[1]);	
 
 }
+
+struct sigaction _hdlErrorStruct;
+struct sigaction _hdlTermStruct;
 
 // We catch interruptions to stop properly the profiler
 void intHandler(int dummy) {
@@ -1360,6 +1385,61 @@ void intHandler(int dummy) {
     stopProfiler();
     exit(0);
 }
+
+extern "C" void handlingTerminate(int iSignal, siginfo_t *iInfo, void *arg){
+    
+    printf("\nProgram terminated...\n");		
+    usleep(1000000); // Waiting builder stop
+
+    intHandler(0);
+	
+}
+
+extern "C" void handlingErrorSignals(int iSignal, siginfo_t *iInfo, void *arg){
+
+    printf("\nProgram terminated in error...\n");
+    if (iSignal==SIGSEGV) {
+	  printf("SIGSEV Signal received\n");
+	  printf("Address [%p]\n",iInfo->si_addr);
+	  /*
+       char demang[2048];
+       if (demangle(demang, 2048, iInfo->si_addr)) {
+		printf("Method :%s\n", demang);
+       }
+	  */	
+
+    } else if (iSignal==SIGABRT) {
+	  printf("SIGABRT Signal received\n");
+    } else if (iSignal==SIGILL) {
+	  printf("SIGILL Signal received\n");
+    } else if (iSignal==SIGFPE) {
+	  printf("SIGFPE Signal received\n");
+    }
+    usleep(1000000); // Waiting builder stop	
+
+    intHandler(0);
+
+}
+
+extern "C" void manageSignals(){
+
+	// Catch interruptions
+
+	_hdlErrorStruct.sa_sigaction = handlingErrorSignals;
+	_hdlErrorStruct.sa_flags = SA_SIGINFO;
+	
+	sigaction(SIGSEGV, &_hdlErrorStruct, 0);
+	sigaction(SIGILL , &_hdlErrorStruct, 0);
+	sigaction(SIGFPE , &_hdlErrorStruct, 0);
+	sigaction(SIGABRT, &_hdlErrorStruct, 0);
+
+	_hdlTermStruct.sa_sigaction = handlingTerminate;
+	_hdlTermStruct.sa_flags = SA_SIGINFO;
+	
+	sigaction(SIGTERM, &_hdlTermStruct, 0);
+
+}
+
 
 extern "C" void initProfiler(void *func){
 
@@ -1370,7 +1450,7 @@ extern "C" void initProfiler(void *func){
 	redirect_standard_output();
 
 	// Catch interruptions
-	signal(SIGINT, intHandler);
+	manageSignals();
 
 	_entryPointer = func;
 
@@ -1475,6 +1555,7 @@ extern "C" void __cyg_profile_func_exit(void *func, void *callsite){
 			
 		   aItemMethod->_name = new char[2048];
 		   if (demangle(aItemMethod->_name, 2048, func)) {
+			aItemMethod->_name_hash = hash((unsigned char*) aItemMethod->_name);
 		   }
 	
 		   aItemMethod->_count = 1;
@@ -1485,8 +1566,6 @@ extern "C" void __cyg_profile_func_exit(void *func, void *callsite){
 		   aItemMethod->_nextItem = 0;
 
 		   // Callers
-		   //ITEM_CALLER *_callers;
-		   //ITEM_CALLER *_last_caller;
 		   aItemMethod->_callers = 0;	
 		   aItemMethod->_last_caller = 0;
 		   aItemMethod->_numberCallers = 0;
